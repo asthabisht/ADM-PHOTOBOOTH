@@ -222,14 +222,17 @@ const CONFIG={
   IDLE_RESET_SECONDS:90,     // back to start if the screen is left alone
   DEFAULT_PLATE:"a",
   RAW_FALLBACK:true,         // background removal down -> guest still gets their raw photo in the ADM frame
-  // AI pass after the cut-out: relights the guest and blends them into the scene (FLUX Kontext on Replicate).
-  // Set AI_ENDPOINT:"" to switch it off. If it fails or times out, the guest gets the normal composite.
+  // AI pass after the cut-out: regenerates the whole photo — the guest standing in the chosen BMW scene
+  // (Nano Banana on Replicate, given the scene + the cut-out guest). Set AI_ENDPOINT:"" to switch it off.
+  // If it fails or times out, the guest gets the normal cut-out composite.
   AI_ENDPOINT:"/.netlify/functions/harmonize",
-  AI_TIMEOUT_SECONDS:45,
-  AI_PROMPT:"Blend the person naturally into this photograph so it looks like one real photo taken on location. "+
-    "Match the person's lighting direction, colour temperature, contrast and reflections to the scene, and give them a realistic soft shadow on the ground at their feet. "+
-    "Keep the person's face, identity, facial features, expression, skin tone, hairstyle, body shape, pose and clothing exactly the same. "+
-    "Do not change the car, the building, the background, the camera angle, the framing or the composition. Photorealistic, high detail."
+  AI_TIMEOUT_SECONDS:60,
+  AI_PROMPT:"Image 1 is a location photo: a {MODEL} parked in front of a modern glass building. Image 2 is a guest photographed at an event. "+
+    "Create one new photorealistic vertical photograph of this exact guest standing on the ground in the location from image 1, beside the {MODEL}, as if a professional photographer shot them there. "+
+    "Show the guest from head to at least the knees, standing naturally, facing the camera, at a realistic human scale next to the car. "+
+    "The guest must look exactly like image 2: same face, facial features, skin tone, expression, hair, glasses, accessories, body shape and clothing. "+
+    "Keep the {MODEL}, the building and the setting from image 1 recognisable and unchanged in design. "+
+    "Match the light direction, colour and reflections of the scene, with natural shadows on the ground. No text, no logos added, no extra people."
 };
 /* Scene placement — tweak on site if needed:
    cx    = where the guest's centre sits across the photo (0 left … 1 right)
@@ -407,10 +410,10 @@ async function requestCutout(b64){
   if(!CONFIG.CUTOUT_ENDPOINT)return null;
   try{
     const r=await fetch(CONFIG.CUTOUT_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageBase64:b64,name:userName})});
-    if(!r.ok)return null;
     const j=await r.json().catch(()=>null);
+    if(!r.ok){console.warn('[cutout] failed',r.status,j);window.lastCutoutError={status:r.status,body:j};return null;}
     return j&&(j.png||j.dataURI||j.url)||null;
-  }catch(e){return null;}
+  }catch(e){console.warn('[cutout] network error',e);window.lastCutoutError={error:String(e)};return null;}
 }
 function cutFail(){
   const t=document.getElementById('cutText');t.className='cut-text err';t.textContent='SOMETHING WENT WRONG';
@@ -446,17 +449,17 @@ function renderCompose(){
 }
 /* ------------- AI blend: guest relit + merged into the chosen scene ------------- */
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
-async function requestAI(sceneDataURL){
+async function requestAI(images,prompt){
   try{
-    const r=await fetch(CONFIG.AI_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:sceneDataURL,prompt:CONFIG.AI_PROMPT})});
-    const j=await r.json().catch(()=>null);if(!r.ok||!j||!j.id)return null;
+    const r=await fetch(CONFIG.AI_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({images,prompt})});
+    const j=await r.json().catch(()=>null);if(!r.ok||!j||!j.id){console.warn('[ai] start failed',r.status,j);window.lastAIError={status:r.status,body:j};return null;}
     const until=Date.now()+CONFIG.AI_TIMEOUT_SECONDS*1000;
     while(Date.now()<until){
       await wait(1500);
       const q=await fetch(CONFIG.AI_ENDPOINT+'?id='+encodeURIComponent(j.id)).then(x=>x.json()).catch(()=>null);
       if(!q)continue;
       if(q.status==='succeeded')return q.image||null;
-      if(q.status==='failed')return null;
+      if(q.status==='failed'){console.warn('[ai] failed',q);window.lastAIError=q;return null;}
     }
   }catch(e){}
   return null;
@@ -467,8 +470,13 @@ async function runAI(key){
   loading.classList.add('show');document.getElementById('cutRetry').style.display='none';
   txt.className='cut-text';txt.textContent='PLACING YOU IN THE SCENE…';
   const sc=document.createElement('canvas');sc.width=OUTW;sc.height=SCENEH;
-  drawScene(sc.getContext('2d'),key,personCaptured,personBox);
-  const out=await requestAI(sc.toDataURL('image/jpeg',0.9));
+  drawScene(sc.getContext('2d'),key,null,null);                       // clean scene, no guest
+  const b=personBox,gc=document.createElement('canvas'),pad=Math.round(Math.max(b.w,b.h)*.06);
+  gc.width=b.w+pad*2;gc.height=b.h+pad*2;const gx=gc.getContext('2d');  // guest cut-out on plain light grey
+  gx.fillStyle='#d9d9d9';gx.fillRect(0,0,gc.width,gc.height);
+  gx.drawImage(personCaptured,b.x,b.y,b.w,b.h,pad,pad,b.w,b.h);
+  const prompt=CONFIG.AI_PROMPT.split('{MODEL}').join(plate(key).model);
+  const out=await requestAI([sc.toDataURL('image/jpeg',0.9),gc.toDataURL('image/jpeg',0.92)],prompt);
   if(run!==aiRun&&aiScenes[key]!==null)return;              // reset/retake happened meanwhile
   const img=out?await loadImg(out):null;
   aiScenes[key]=img||false;                                 // false = AI failed, use the normal composite

@@ -1,16 +1,19 @@
-// AI "place me in the scene" pass — runs after background removal + compositing.
-//   POST { image: "data:image/jpeg;base64,...", prompt }  ->  { id }          (starts the job)
+// AI "put me in the scene" pass — regenerates the whole photo from the scene + the guest.
+//   POST { images: [sceneDataURI, guestDataURI], prompt }  ->  { id }          (starts the job)
+//   (or { image, prompt } for a single-image edit model)
 //   GET  ?id=<id>  ->  { status: "starting"|"processing" }
 //                   |  { status: "succeeded", image: "data:image/jpeg;base64,..." }
 //                   |  { status: "failed", error }
 // Two-step (start + poll) so no single function call runs past Netlify's time limit.
-// Default model: FLUX.1 Kontext [pro] on Replicate — relights/blends the guest into the scene
-// while keeping their face. Override with HARMONIZE_MODEL. Uses the same REPLICATE_API_TOKEN.
+// Default model: Google Nano Banana (Gemini image) on Replicate — takes several reference images
+// and keeps faces well. Override with HARMONIZE_MODEL (e.g. black-forest-labs/flux-kontext-pro for a
+// single-image relight). Uses the same REPLICATE_API_TOKEN.
 
 import Replicate from "replicate";
 
 const replicate = new Replicate();
-const MODEL = process.env.HARMONIZE_MODEL || "black-forest-labs/flux-kontext-pro";
+const MODEL = process.env.HARMONIZE_MODEL || "google/nano-banana";
+const MULTI = !/flux-kontext/.test(MODEL);            // models that take an array of reference images
 
 const json = (status, body) => ({
   statusCode: status,
@@ -31,21 +34,16 @@ export async function handler(event) {
 
   try {
     if (event.httpMethod === "POST") {
-      let image, prompt;
-      try { ({ image, prompt } = JSON.parse(event.body || "{}")); }
+      let image, images, prompt;
+      try { ({ image, images, prompt } = JSON.parse(event.body || "{}")); }
       catch { return json(400, { error: "bad JSON body" }); }
-      if (!image || !prompt) return json(400, { error: "image and prompt required" });
+      images = images || (image ? [image] : []);
+      if (!images.length || !prompt) return json(400, { error: "images and prompt required" });
 
-      const prediction = await replicate.predictions.create({
-        model: MODEL,
-        input: {
-          prompt,
-          input_image: image,
-          aspect_ratio: "match_input_image",
-          output_format: "jpg",
-          safety_tolerance: 2,
-        },
-      });
+      const input = MULTI
+        ? { prompt, image_input: images, aspect_ratio: "match_input_image", output_format: "jpg" }
+        : { prompt, input_image: images[0], aspect_ratio: "match_input_image", output_format: "jpg", safety_tolerance: 2 };
+      const prediction = await replicate.predictions.create({ model: MODEL, input });
       return json(200, { id: prediction.id });
     }
 
