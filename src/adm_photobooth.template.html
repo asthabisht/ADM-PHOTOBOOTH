@@ -105,9 +105,9 @@
   .print-only{display:none}
   @media print{
     @page{size:4in 6in;margin:0}
-    html,body{height:auto;background:#fff;display:block;overflow:visible}
-    .stage{display:none!important}
-    .print-only{display:block;width:100%;height:auto}
+    html,body{width:4in;height:6in;margin:0!important;padding:0!important;background:#fff;display:block;overflow:hidden}
+    body>*{display:none!important}                         /* only the photo goes to the printer */
+    body>#printImg{display:block!important;position:absolute;left:0;top:0;width:4in;height:6in;object-fit:cover;break-inside:avoid;page-break-after:avoid}
   }
 </style>
 
@@ -518,8 +518,14 @@ async function uploadPhoto(b64){
     return j&&(j.url||j.secure_url||j.link)||null;
   }catch(e){return null;}
 }
-function printPhoto(){
-  try{window.print();}catch(e){}
+let printing=false;
+async function printPhoto(){
+  if(printing)return;printing=true;                        // one print per guest — extra taps are ignored
+  document.getElementById('printBtn').disabled=true;
+  const pi=document.getElementById('printImg');
+  try{if(pi.decode)await pi.decode();}catch(e){}           // make sure the photo is ready before printing
+  if(!pi.naturalWidth){dbg('PRINT: no photo loaded, nothing sent');}
+  else{try{window.print();}catch(e){}}
   const ov=document.getElementById('printOverlay'),q=document.getElementById('printQr'),qs=document.getElementById('printQrSub');
   if(lastPhotoURL){renderQR('printQr',lastPhotoURL);q.style.display='';qs.style.display='';}else{q.style.display='none';qs.style.display='none';}
   const bar=document.getElementById('printBar');bar.style.transition='none';bar.style.width='0';
@@ -534,6 +540,7 @@ function renderQR(id,text){
   else fallback();
 }
 function resetAll(){
+  printing=false;document.getElementById('printBtn').disabled=false;
   clearTimeout(printTimer);clearTimeout(idleTimer);clearTimers();running=false;
   userName='';selectedKey=CONFIG.DEFAULT_PLATE;personCaptured=null;personBox=null;rawCapture=null;lastPhotoURL=null;aiScenes={};aiRun++;
   document.getElementById('doneQr').classList.add('hide');
