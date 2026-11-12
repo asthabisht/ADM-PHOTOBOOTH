@@ -322,9 +322,9 @@ function gradedPerson(person,grade){
 }
 function drawFooter(ctx){
   ctx.fillStyle='#000';ctx.fillRect(0,SCENEH,OUTW,FOOTH);
-  const rs=118,ry=SCENEH+48;
+  const rs=100,ry=SCENEH+50;
   if(roundelImg)ctx.drawImage(roundelImg,(OUTW-rs)/2,ry,rs,rs);
-  if(wordmarkImg){const ww=400,wh=ww*wordmarkImg.height/wordmarkImg.width;ctx.drawImage(wordmarkImg,(OUTW-ww)/2,ry+rs+30,ww,wh);}
+  if(wordmarkImg){const ww=360,wh=ww*wordmarkImg.height/wordmarkImg.width;ctx.drawImage(wordmarkImg,(OUTW-ww)/2,ry+rs+22,ww,wh);}
 }
 function composite(ctx,key,person,box,ai){
   ctx.clearRect(0,0,OUTW,OUTH);

@@ -33,7 +33,7 @@ for y in range(fade):
     d.line([(0, y), (w, y)], fill=(0, 0, 0, int(115 * (1 - y / fade) ** 1.6)))
 
 # fine white keyline around the scene
-m, t = 36 * S, 2 * S
+m, t = 48 * S, 2 * S
 d.rectangle([m, m, w - m, sh - m], outline=(255, 255, 255, 150), width=t)
 
 # BMW roundel, top-right inside the keyline
@@ -43,10 +43,11 @@ ov.alpha_composite(fit(roundel, rs), (w - m - 34 * S - rs, m + 34 * S))
 # footer: black band, hairline, roundel + Abu Dhabi Motors wordmark
 d.rectangle([0, sh, w, h], fill=(0, 0, 0, 255))
 d.line([(0, sh), (w, sh)], fill=(255, 255, 255, 70), width=2 * S)
-rs, ry = 118 * S, sh + 48 * S
+# kept well inside the footer: borderless printing trims a few mm off every edge
+rs, ry = 100 * S, sh + 50 * S
 ov.alpha_composite(fit(roundel, rs), ((w - rs) // 2, ry))
-wm = fit(wordmark, 400 * S)
-ov.alpha_composite(wm, ((w - wm.width) // 2, ry + rs + 30 * S))
+wm = fit(wordmark, 360 * S)
+ov.alpha_composite(wm, ((w - wm.width) // 2, ry + rs + 22 * S))
 
 ov = ov.resize((W, H), Image.LANCZOS)
 ov.save(A / "overlay.png", optimize=True)
