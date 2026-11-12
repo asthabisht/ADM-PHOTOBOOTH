@@ -209,6 +209,7 @@
 </div>
 
 <img id="printImg" class="print-only" alt="">
+<div id="dbg" style="display:none;position:fixed;left:8px;bottom:8px;z-index:9999;background:rgba(0,0,0,.75);color:#9fe;font:12px/1.4 monospace;padding:6px 8px;border-radius:4px;max-width:90vw;white-space:pre-wrap"></div>
 
 <script>
 /* ----------------------------- CONFIG ----------------------------- */
@@ -228,9 +229,10 @@ const CONFIG={
   AI_ENDPOINT:"/.netlify/functions/harmonize",
   AI_TIMEOUT_SECONDS:60,
   AI_PROMPT:"Image 1 is a location photo: a {MODEL} parked in front of a modern glass building. Image 2 is a guest photographed at an event. "+
-    "Create one new photorealistic vertical photograph of this exact guest standing on the ground in the location from image 1, beside the {MODEL}, as if a professional photographer shot them there. "+
-    "Show the guest from head to at least the knees, standing naturally, facing the camera, at a realistic human scale next to the car. "+
-    "The guest must look exactly like image 2: same face, facial features, skin tone, expression, hair, glasses, accessories, body shape and clothing. "+
+    "Create one new photorealistic vertical 4:5 photograph of this exact guest standing in the location from image 1, as if a professional photographer shot them there. "+
+    "The guest is the main subject: standing in the foreground, close to the camera, slightly left of centre, filling about two thirds of the image height, facing the camera. "+
+    "The {MODEL} is behind the guest and to the side, and the WHOLE car must be fully visible inside the frame: never cut off by the image edges, with space around it. "+
+    "The guest must look exactly like image 2: same face, facial features, skin tone, expression, hair, glasses, accessories, natural body proportions and clothing; keep their pose. "+
     "Keep the {MODEL}, the building and the setting from image 1 recognisable and unchanged in design. "+
     "Match the light direction, colour and reflections of the scene, with natural shadows on the ground. No text, no logos added, no extra people."
 };
@@ -251,6 +253,9 @@ const OVERLAY_SRC='{{OVERLAY}}';
 const OUTW=1200, OUTH=1800, SCENEH=1530, FOOTH=OUTH-SCENEH;   // 4x6 in @ 300 dpi
 const PW=600, PH=Math.round(PW*SCENEH/OUTW);                    // live preview size
 
+/* Add ?debug to the URL to see what background removal / AI did on each photo (bottom-left). */
+const DEBUG=/[?&]debug/.test(location.search);
+function dbg(m){if(!DEBUG)return;const e=document.getElementById('dbg');e.style.display='block';e.textContent=m;console.log('[booth]',m);}
 /* ----------------------------- STATE ------------------------------ */
 const screens=['begin','choose','capture','review','compose','done'];
 let stream=null,userName='',selectedKey=CONFIG.DEFAULT_PLATE,running=false;
@@ -323,7 +328,12 @@ function drawFooter(ctx){
 }
 function composite(ctx,key,person,box,ai){
   ctx.clearRect(0,0,OUTW,OUTH);
-  if(ai){const r=coverRect(ai.width,ai.height,OUTW,SCENEH);ctx.save();ctx.beginPath();ctx.rect(0,0,OUTW,SCENEH);ctx.clip();ctx.drawImage(ai,r[0],r[1],r[2],r[3]);ctx.restore();}
+  if(ai){                                                   // AI photo: never cropped — whole image fitted in,
+    ctx.save();ctx.beginPath();ctx.rect(0,0,OUTW,SCENEH);ctx.clip();   // any spare edge filled with a blurred copy
+    const c=coverRect(ai.width,ai.height,OUTW,SCENEH);ctx.filter='blur(30px) brightness(.8)';ctx.drawImage(ai,c[0],c[1],c[2],c[3]);ctx.filter='none';
+    const k=Math.min(OUTW/ai.width,SCENEH/ai.height),w=ai.width*k,h=ai.height*k;ctx.drawImage(ai,(OUTW-w)/2,(SCENEH-h)/2,w,h);
+    ctx.restore();
+  }
   else drawScene(ctx,key,person,box);
   if(overlayImg)ctx.drawImage(overlayImg,0,0,OUTW,OUTH);   // ADM frame + logos
   else drawFooter(ctx);                                    // fallback if the overlay is missing
@@ -411,7 +421,7 @@ async function requestCutout(b64){
   try{
     const r=await fetch(CONFIG.CUTOUT_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageBase64:b64,name:userName})});
     const j=await r.json().catch(()=>null);
-    if(!r.ok){console.warn('[cutout] failed',r.status,j);window.lastCutoutError={status:r.status,body:j};return null;}
+    if(!r.ok){console.warn('[cutout] failed',r.status,j);window.lastCutoutError={status:r.status,body:j};dbg('CUTOUT FAILED '+r.status+' '+JSON.stringify(j).slice(0,200));return null;}
     return j&&(j.png||j.dataURI||j.url)||null;
   }catch(e){console.warn('[cutout] network error',e);window.lastCutoutError={error:String(e)};return null;}
 }
@@ -476,10 +486,12 @@ async function runAI(key){
   gx.fillStyle='#d9d9d9';gx.fillRect(0,0,gc.width,gc.height);
   gx.drawImage(personCaptured,b.x,b.y,b.w,b.h,pad,pad,b.w,b.h);
   const prompt=CONFIG.AI_PROMPT.split('{MODEL}').join(plate(key).model);
+  const t0=Date.now();dbg('AI: working… ('+plate(key).model+')');
   const out=await requestAI([sc.toDataURL('image/jpeg',0.9),gc.toDataURL('image/jpeg',0.92)],prompt);
   if(run!==aiRun&&aiScenes[key]!==null)return;              // reset/retake happened meanwhile
   const img=out?await loadImg(out):null;
   aiScenes[key]=img||false;                                 // false = AI failed, use the normal composite
+  dbg(img?'AI: OK in '+Math.round((Date.now()-t0)/1000)+'s ('+img.width+'x'+img.height+')':'AI: FAILED after '+Math.round((Date.now()-t0)/1000)+'s → plain cut-out used. '+JSON.stringify(window.lastAIError||'timeout').slice(0,200));
   if(selectedKey===key){loading.classList.remove('show');renderCompose();}
   bumpIdle();
 }

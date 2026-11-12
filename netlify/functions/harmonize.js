@@ -41,7 +41,7 @@ export async function handler(event) {
       if (!images.length || !prompt) return json(400, { error: "images and prompt required" });
 
       const input = MULTI
-        ? { prompt, image_input: images, aspect_ratio: "match_input_image", output_format: "jpg" }
+        ? { prompt, image_input: images, aspect_ratio: "4:5", output_format: "jpg" }   // 4:5 = the print scene (1200x1530)
         : { prompt, input_image: images[0], aspect_ratio: "match_input_image", output_format: "jpg", safety_tolerance: 2 };
       const prediction = await replicate.predictions.create({ model: MODEL, input });
       return json(200, { id: prediction.id });

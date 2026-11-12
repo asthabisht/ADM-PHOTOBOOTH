@@ -10,3 +10,13 @@
   from = "/"
   to = "/adm_photobooth.html"
   status = 200
+
+# Kiosks always load the latest booth page (no stale cached version after an update).
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "no-cache"
